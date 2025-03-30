@@ -1,0 +1,140 @@
+I'll create a **DSRC Module GitHub Repository** with detailed documentation. Here's the structure and explanation:
+
+---
+
+# DSRC-V2V-Communication  
+**A low-cost, beginner-friendly implementation of Vehicle-to-Vehicle communication using DSRC**  
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## Directory Structure
+```
+DSRC-V2V/
+├── hardware_setup/  
+│   └── wiring_diagram.png  
+├── src/  
+│   ├── sender.py         # Vehicle sending messages  
+│   ├── receiver.py       # Vehicle receiving alerts  
+│   └── message_format.py # Custom message protocol  
+├── requirements.txt  
+└── README.md  
+```
+
+---
+
+## Hardware Requirements (Total Cost: $200-$250)
+| Component | Purpose | Model |  
+|-----------|---------|-------|  
+| Single Board Computer | Processing | Raspberry Pi 4 (4GB) |  
+| DSRC Radio | V2V Communication | Waveshare IEEE 802.11p (5.9GHz) |  
+| GPS Module | Location Tracking | NEO-6M |  
+| Power Supply | Portable Operation | Anker PowerCore 26800mAh |  
+
+<img src="hardware_setup/wiring_diagram.png" width="400" alt="Hardware Connection Diagram">
+
+---
+
+## Software Implementation
+
+### 1. Core DSRC Communication (`sender.py`)
+```python
+import socket
+import time
+from message_format import create_v2v_message
+
+# DSRC Broadcast Setup
+DSRC_PORT = 5000
+BROADCAST_ADDR = "255.255.255.255"
+
+def setup_dsrc():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    return sock
+
+def send_vehicle_status():
+    sock = setup_dsrc()
+    while True:
+        # Example data - replace with real sensors
+        message = create_v2v_message(
+            action="TURN_LEFT",
+            speed=45,
+            latitude=12.9716,
+            longitude=77.5946
+        )
+        sock.sendto(message.encode(), (BROADCAST_ADDR, DSRC_PORT))
+        time.sleep(0.1)  # Send 10x per second
+
+if __name__ == "__main__":
+    send_vehicle_status()
+```
+
+### 2. Message Receiver (`receiver.py`)
+```python
+import socket
+from message_format import parse_v2v_message
+
+def start_dsrc_listener():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("0.0.0.0", DSRC_PORT))
+    
+    print("Listening for DSRC messages...")
+    while True:
+        data, addr = sock.recvfrom(1024)
+        message = parse_v2v_message(data.decode())
+        if message:
+            print(f"ALERT from {addr}: {message['action']} at {message['speed']}km/h")
+
+if __name__ == "__main__":
+    start_dsrc_listener()
+```
+
+### 3. Message Protocol (`message_format.py`)
+```python
+# Simple custom protocol for beginner implementation
+def create_v2v_message(action, speed, lat, lon):
+    return f"V2V|1.0|{action}|{speed}|{lat}|{lon}|END"
+
+def parse_v2v_message(data):
+    if not data.startswith("V2V|1.0|"):
+        return None
+    parts = data.split("|")
+    return {
+        "action": parts[2],
+        "speed": float(parts[3]),
+        "latitude": float(parts[4]),
+        "longitude": float(parts[5])
+    }
+```
+
+---
+
+## Setup Guide
+
+### 1. Install Dependencies
+```bash
+# requirements.txt
+python>=3.8
+RPi.GPIO
+pySerial
+```
+
+### 2. Hardware Configuration
+1. Connect Waveshare DSRC module to Raspberry Pi USB port
+2. Connect NEO-6M GPS to GPIO pins (UART)
+3. Power using 5V USB-C battery pack
+
+### 3. Test Communication
+```bash
+# On Vehicle A (Sender)
+python src/sender.py
+
+# On Vehicle B (Receiver)
+python src/receiver.py
+```
+
+---
+
+## Key Features
+- **Simple Message Protocol**: Custom `V2V|version|action|...` format
+- **Broadcast Messaging**: UDP broadcast on 255.255.255.255
+- **Basic Safety Messages**: Speed, position, and driver intent
+- **Plug-and-Play**: No kernel modifications required
