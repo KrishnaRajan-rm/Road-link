@@ -1,0 +1,109 @@
+import cv2
+import numpy as np
+from ultralytics import YOLO
+
+def nothing(x):
+    pass
+
+# -------------------------
+# Initialize YOLOv8 model
+# -------------------------
+model = YOLO("yolov8n.pt")  # This will download the model weights if not present
+
+# -------------------------
+# Setup webcam capture
+# -------------------------
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("Error: Webcam not accessible.")
+    exit()
+
+# Read one frame to get dimensions
+ret, frame = cap.read()
+if not ret:
+    print("Error: Could not read frame.")
+    exit()
+
+frame_height, frame_width = frame.shape[:2]
+
+# -------------------------
+# Fixed ROI Definition
+# -------------------------
+# Define a diagonal ROI line:
+# Start at (15% of width, 0) and end at (80% of width, frame_height)
+roi_start = (int(frame_width * 0.15), 0)
+roi_end = (int(frame_width * 0.80), frame_height)
+# Calculate the line equation: y = m*x + c
+m = (roi_end[1] - roi_start[1]) / (roi_end[0] - roi_start[0] + 1e-6)
+c = roi_start[1] - m * roi_start[0]
+
+# -------------------------
+# Create a window for sensitivity settings
+# -------------------------
+cv2.namedWindow("Sensitivity Settings")
+# Trackbar for Confidence Threshold (0 to 100, default 50)
+cv2.createTrackbar("Confidence", "Sensitivity Settings", 50, 100, nothing)
+# Trackbar for Minimum Box Area (100 to 5000, default 500)
+cv2.createTrackbar("Min Box Area", "Sensitivity Settings", 500, 5000, nothing)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Get sensitivity values from trackbars
+    conf_thresh = cv2.getTrackbarPos("Confidence", "Sensitivity Settings") / 100.0
+    min_box_area = cv2.getTrackbarPos("Min Box Area", "Sensitivity Settings")
+
+    # Run YOLOv8 detection on the current frame
+    results = model(frame)
+    result = results[0]  # Get the first result object
+
+    # Default ROI line color is green (safe zone)
+    roi_line_color = (0, 255, 0)
+
+    # Process each detection (if any)
+    if result.boxes is not None:
+        for idx, box in enumerate(result.boxes.xyxy):
+            data = box.cpu().numpy()
+            if data.shape[0] < 4:
+                continue
+            x1, y1, x2, y2 = data[:4]
+
+            # Get detection confidence if available
+            conf = float(result.boxes.conf[idx]) if (result.boxes.conf is not None and len(result.boxes.conf) > idx) else 1.0
+            if conf < conf_thresh:
+                continue
+
+            # Calculate the area of the bounding box and filter small boxes
+            area = (x2 - x1) * (y2 - y1)
+            if area < min_box_area:
+                continue
+
+            # Compute the center of the bounding box
+            cx = (x1 + x2) / 2.0
+            cy = (y1 + y2) / 2.0
+
+            # Check if the center is below the ROI line (i.e., danger zone)
+            # The ROI line equation: y = m * x + c
+            if cy > m * cx + c:
+                box_color = (0, 0, 255)  # Red for danger
+                roi_line_color = (0, 0, 255)  # Change ROI line to red if any object is in danger zone
+            else:
+                box_color = (100, 255, 100)  # Light green for safe
+
+            # Draw the bounding box
+            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), box_color, 2)
+
+    # Draw the fixed ROI diagonal line
+    cv2.line(frame, roi_start, roi_end, roi_line_color, 2)
+
+    # Display the frame
+    cv2.imshow("YOLO with ROI Monitoring", frame)
+
+    # Exit on ESC key
+    if cv2.waitKey(1) & 0xFF == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
